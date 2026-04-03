@@ -15,7 +15,7 @@ async function bootstrap() {
 
   // CORS
   app.enableCors({
-    origin: ['http://localhost:4200', 'http://localhost:80', 'http://localhost'],
+    origin: ['http://localhost:4200', 'http://localhost:80', 'http://localhost', 'https://terrain-osy.vercel.app'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
