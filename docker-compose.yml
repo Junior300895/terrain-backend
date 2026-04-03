@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: football-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: football_db
+      MYSQL_USER: football_user
+      MYSQL_PASSWORD: football_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+
+  backend:
+    build: .
+    container_name: football-backend-nest
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: football_db
+      DB_USERNAME: football_user
+      DB_PASSWORD: football_pass
+      JWT_SECRET: my-super-secret-jwt-key-change-in-production-minimum-256bits-long
+      JWT_EXPIRES_IN: 24h
+      NODE_ENV: production
+      PORT: 3000
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  mysql_data:
