@@ -18,13 +18,15 @@
     "@nestjs/schedule": "^4.0.0",
     "@nestjs/swagger": "^7.3.0",
     "@nestjs/typeorm": "^10.0.1",
+    "@types/pdfkit": "^0.17.5",
     "bcrypt": "^5.1.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "exceljs": "^4.4.0",
-    "mysql2": "^3.9.1",
+    "mysql2": "^3.6.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdfkit": "^0.15.0",
     "reflect-metadata": "^0.2.1",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.20",
@@ -38,6 +40,7 @@
     "@types/passport-jwt": "^4.0.1",
     "@types/uuid": "^9.0.7",
     "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "@types/pdfkit": "^0.13.4"
   }
 }
