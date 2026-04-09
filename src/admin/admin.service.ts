@@ -19,8 +19,10 @@ export class AdminService {
 
   async getDashboard() {
     const now = new Date();
-    const debutJour = new Date(now); debutJour.setHours(0, 0, 0, 0);
-    const finJour   = new Date(now); finJour.setHours(23, 59, 59, 999);
+    // Journée terrain : 6h00 → 2h59 du lendemain
+    // Ex: jeudi → de jeudi 06:00 à vendredi 02:59
+    const debutJour = new Date(now); debutJour.setHours(6, 0, 0, 0);
+    const finJour   = new Date(now); finJour.setDate(finJour.getDate() + 1); finJour.setHours(2, 59, 59, 999);
     const debutMois = new Date(now.getFullYear(), now.getMonth(), 1);
     const finMois   = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
