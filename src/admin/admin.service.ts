@@ -55,9 +55,9 @@ export class AdminService {
     const paiementsJour: any[] = [];
     const paiementsMois: any[] = [];
 
-    const creneauxDispoJour = await this.creneauRepo.count({
-      where: { statut: StatutCreneau.DISPONIBLE, debut: Between(debutJour, finJour) },
-    });
+    // 24 créneaux virtuels par jour — les créneaux libres n'existent pas en base
+    const CRENEAUX_PAR_JOUR = 24;
+    const creneauxDispoJour = Math.max(0, CRENEAUX_PAR_JOUR - resaJour);
 
     const resasJourRaw = await this.resaRepo.find({
       where: { creneau: { debut: Between(debutJour, finJour) } },
@@ -79,8 +79,36 @@ export class AdminService {
 
     const revenuJour = Number(sqlJour[0]?.total ?? 0);
     const revenuMois = Number(sqlMois[0]?.total ?? 0);
-    const tauxOccupation = resaJour > 0 && creneauxDispoJour > 0
-      ? Math.round((resaJour / (resaJour + creneauxDispoJour)) * 1000) / 10 : 0;
+    const tauxOccupation = Math.round((resaJour / CRENEAUX_PAR_JOUR) * 1000) / 10;
+
+    // Données des 7 derniers jours pour le graphique
+    const sept7 = new Date(now); sept7.setDate(sept7.getDate() - 6); sept7.setHours(0,0,0,0);
+    const parJour: any[] = await this.dataSource.query(
+      `SELECT
+         DATE_FORMAT(p.paid_at, '%Y-%m-%d') AS jour,
+         COALESCE(SUM(p.montant), 0)        AS revenu,
+         COUNT(DISTINCT p.reservation_id)   AS nbResa
+       FROM paiements p
+       WHERE p.statut = 'VALIDE'
+         AND p.paid_at BETWEEN ? AND ?
+       GROUP BY DATE_FORMAT(p.paid_at, '%Y-%m-%d')
+       ORDER BY jour ASC`,
+      [toSQL(sept7), toSQL(finJour)],
+    );
+
+    // Remplir les jours sans données
+    const semaine: { jour: string; label: string; revenu: number; nbResa: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      const key = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+      const data = parJour.find((r: any) => r.jour === key);
+      semaine.push({
+        jour: key,
+        label: d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
+        revenu: data ? Number(data.revenu) : 0,
+        nbResa: data ? Number(data.nbResa) : 0,
+      });
+    }
 
     return {
       totalReservationsAujourdhui: resaJour,
@@ -90,6 +118,7 @@ export class AdminService {
       creneauxDisponiblesAujourdhui: creneauxDispoJour,
       tauxOccupation,
       prochainesReservations,
+      semaine,
     };
   }
 
