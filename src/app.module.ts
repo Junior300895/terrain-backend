@@ -10,6 +10,7 @@ import { Terrain } from './common/entities/terrain.entity';
 import { Creneau } from './common/entities/creneau.entity';
 import { Reservation } from './common/entities/reservation.entity';
 import { Paiement } from './common/entities/paiement.entity';
+import { Depense } from './common/entities/depense.entity';
 
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { AuthModule } from './auth/auth.module';
@@ -23,6 +24,7 @@ import { TerrainsModule } from './terrains/terrains.module';
 import { UsersModule } from './users/users.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { RapportsModule } from './rapports/rapports.module';
+import { DepensesModule } from './depenses/depenses.module';
 
 @Module({
   imports: [
@@ -35,12 +37,12 @@ import { RapportsModule } from './rapports/rapports.module';
         host: config.get('DB_HOST', 'localhost'),
         port: config.get<number>('DB_PORT', 3306),
         username: config.get('DB_USERNAME', 'root'),
-        password: config.get('DB_PASSWORD', 'password'),
+        password: config.get('DB_PASSWORD', ''),
         database: config.get('DB_DATABASE', 'football_db'),
-        entities: [Utilisateur, Terrain, Creneau, Reservation, Paiement],
+        entities: [Utilisateur, Terrain, Creneau, Reservation, Paiement, Depense],
         synchronize: config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
-        timezone: 'Africa/Dakar',
+        timezone: '+00:00',
       }),
       inject: [ConfigService],
     }),
@@ -55,6 +57,7 @@ import { RapportsModule } from './rapports/rapports.module';
     UsersModule,
     WhatsappModule,
     RapportsModule,
+    DepensesModule
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

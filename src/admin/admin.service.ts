@@ -29,7 +29,7 @@ export class AdminService {
     const [resaJour, resaMois] = await Promise.all([
       this.resaRepo.count({ where: { statut: StatutReservation.CONFIRMEE, createdAt: Between(debutJour, finJour) } }),
       this.resaRepo.count({ where: { statut: StatutReservation.CONFIRMEE, createdAt: Between(debutMois, finMois) } }),
-    ]);
+    ]); 
 
     // Revenus via SQL direct avec plages de dates calculées côté Node.js
     // (évite tout problème de timezone entre Node et MySQL)
