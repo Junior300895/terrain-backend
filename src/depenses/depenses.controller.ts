@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Delete, Param, Query, Body,
+  Controller, Get, Post, Patch, Delete, Param, Query, Body,
   UseGuards, UseInterceptors, UploadedFile, Res,
   ParseIntPipe, BadRequestException, NotFoundException,
 } from '@nestjs/common';
@@ -170,6 +170,45 @@ export class DepensesController {
     }
 
     return { url: signedUrl };
+  }
+
+  @Patch(':id')
+  @UseInterceptors(FileInterceptor('fichier', {
+    storage: memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+      if (allowed.includes(file.mimetype)) cb(null, true);
+      else cb(new BadRequestException('Format non supporté'), false);
+    },
+  }))
+  async modifier(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: any,
+    @UploadedFile() fichier?: Express.Multer.File,
+  ) {
+    let cloudinaryResult: any = null;
+    if (fichier) {
+      try {
+        cloudinaryResult = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: 'terrain-dakar/factures', resource_type: 'auto', public_id: 'facture-' + Date.now(), access_mode: 'public' },
+            (error, result) => { if (error) reject(error); else resolve(result); },
+          );
+          uploadStream.end(fichier.buffer);
+        });
+      } catch (err: any) {
+        console.error('Upload Cloudinary ignoré:', err?.message);
+      }
+    }
+    return this.service.modifier(id, {
+      categorie:        body.categorie,
+      montant:          body.montant ? Number(body.montant) : undefined,
+      dateDepense:      body.dateDepense,
+      description:      body.description,
+      referenceFacture: body.referenceFacture,
+      statut:           body.statut,
+    }, fichier, cloudinaryResult);
   }
 
   @Delete(':id')

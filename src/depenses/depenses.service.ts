@@ -64,6 +64,30 @@ export class DepensesService {
     return dep;
   }
 
+  async modifier(
+    id: number,
+    dto: Partial<{ categorie: CategorieDepense; montant: number; dateDepense: string; description: string; referenceFacture: string; statut: StatutDepense }>,
+    fichier?: Express.Multer.File,
+    cloudinaryResult?: any,
+  ): Promise<Depense> {
+    const dep = await this.findOne(id);
+    if (dto.categorie)        dep.categorie        = dto.categorie;
+    if (dto.montant)          dep.montant          = dto.montant;
+    if (dto.dateDepense)      dep.dateDepense      = dto.dateDepense;
+    if (dto.description)      dep.description      = dto.description;
+    if (dto.referenceFacture !== undefined) dep.referenceFacture = dto.referenceFacture;
+    if (dto.statut)           dep.statut           = dto.statut;
+    if (cloudinaryResult?.secure_url) {
+      dep.fichierNom = fichier?.originalname ?? dep.fichierNom;
+      dep.fichierUrl = cloudinaryResult.secure_url;
+      dep.notes = JSON.stringify({
+        cloudinary_id: cloudinaryResult.public_id,
+        resource_type: cloudinaryResult.resource_type ?? 'image',
+      });
+    }
+    return this.repo.save(dep);
+  }
+
   async supprimer(id: number): Promise<void> {
     const dep = await this.findOne(id);
 

@@ -1,12 +1,21 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 export enum CategorieDepense {
-  ELECTRICITE = 'ELECTRICITE',
-  EAU         = 'EAU',
-  SALAIRE     = 'SALAIRE',
-  ENTRETIEN   = 'ENTRETIEN',
-  MATERIEL    = 'MATERIEL',
-  AUTRE       = 'AUTRE',
+  BALLON              = 'BALLON',
+  DOSSARDS            = 'DOSSARDS',
+  CURAGE_BASSIN       = 'CURAGE_BASSIN',
+  ENTRETIEN_BASSIN    = 'ENTRETIEN_BASSIN',
+  PRODUITS_ENTRETIEN  = 'PRODUITS_ENTRETIEN',
+  ELECTRICITE         = 'ELECTRICITE',
+  EAU                 = 'EAU',
+  FEMME_MENAGE        = 'FEMME_MENAGE',
+  GARDIENNAGE         = 'GARDIENNAGE',
+  CHEF_EXPLOITATION   = 'CHEF_EXPLOITATION',
+  GESTIONNAIRE_PELOUSE = 'GESTIONNAIRE_PELOUSE',
+  ADJOINT_CHEF        = 'ADJOINT_CHEF',
+  TRESORIER           = 'TRESORIER',
+  SUPERVISEUR         = 'SUPERVISEUR',
+  AUTRE               = 'AUTRE',
 }
 
 export enum StatutDepense {

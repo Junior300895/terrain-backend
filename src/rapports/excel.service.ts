@@ -50,9 +50,9 @@ export class ExcelService {
     // ── Données ────────────────────────────────────────────────────────────
     const reservations: any[] = await this.ds.query(`
       SELECT r.id, r.code_confirmation AS code,
-             DATE_FORMAT(c.debut,'%d/%m/%Y') AS date,
-             DATE_FORMAT(c.debut,'%H:%i')    AS heure,
-             CONCAT(u.prenom,' ',u.nom)      AS client,
+             DATE_FORMAT(c.debut, '%d/%m/%Y') AS date,
+             DATE_FORMAT(c.debut, '%H:%i')    AS heure,
+             u.prenom || ' ',u.nom      AS client,
              u.telephone, r.statut,
              r.montant_total                 AS montantTotal
       FROM reservations r
@@ -73,7 +73,7 @@ export class ExcelService {
              p.type_paiement  AS type,
              p.montant,
              p.mode,
-             DATE_FORMAT(p.paid_at,'%d/%m/%Y') AS datePaiement,
+             DATE_FORMAT(p.paid_at, '%d/%m/%Y') AS datePaiement,
              p.statut
       FROM paiements p
       WHERE p.reservation_id IN (
@@ -318,7 +318,216 @@ export class ExcelService {
     ];
     ws3.views = [{ state: 'frozen', ySplit: 3 }];
 
-    // ── Export Buffer ──────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // FEUILLE 4 — BILAN FINANCIER PAR SEMAINE
+    // ══════════════════════════════════════════════════════════════════════
+    const ws4 = wb.addWorksheet('Bilan financier');
+
+    const JAUNE_F  = 'FFFFFF00';
+    const ORANGE_F = 'FFFFC000';
+    const BLEU_F   = 'FFD9E1F2';
+    const VERT_F   = 'FF92D050';
+    const NOIR_F   = 'FF000000';
+    const BLANC_F  = 'FFFFFFFF';
+
+    const b4 = (cell: ExcelJS.Cell, bg?: string) => {
+      const s: ExcelJS.Border = { style: 'thin', color: { argb: NOIR_F } };
+      cell.border = { top: s, bottom: s, left: s, right: s, diagonal: {} };
+      if (bg) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+    };
+
+    // ── Titre principal ───────────────────────────────────────────────────
+    ws4.mergeCells('A1:G1');
+    const titre4 = ws4.getCell('A1');
+    const moisLabel4 = new Date(debut + 'T12:00:00').toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }).toUpperCase();
+    titre4.value = `BILAN FINANCIER DE LA LOCATION DU TERRAIN ${moisLabel4}`;
+    titre4.font  = { bold: true, size: 13, name: 'Arial', color: { argb: NOIR_F } };
+    titre4.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: JAUNE_F } };
+    titre4.alignment = { horizontal: 'center', vertical: 'middle' };
+    b4(titre4);
+    ws4.getRow(1).height = 24;
+
+    // ── En-têtes colonnes ─────────────────────────────────────────────────
+    const hdrsB = ['MATCH', 'DATE', 'HEURE', 'TARIF', 'DÉPENSES', 'SOLDES', 'STATUT'];
+    const hrB = ws4.addRow(hdrsB);
+    hrB.height = 20;
+    hrB.eachCell((cell, col) => {
+      cell.font      = { bold: true, size: 10, name: 'Arial', color: { argb: NOIR_F } };
+      cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: JAUNE_F } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      b4(cell);
+    });
+
+    // ── Charger les réservations ──────────────────────────────────────────
+    const resasBilan: any[] = await this.ds.query(`
+      SELECT
+        DATE_FORMAT(c.debut, '%d/%m/%Y')     AS date,
+        CONCAT(DATE_FORMAT(c.debut,'%Hh'), '-', DATE_FORMAT(c.fin,'%Hh')) AS heure,
+        r.montant_total                       AS tarif,
+        COALESCE(SUM(CASE WHEN p.statut='VALIDE' THEN p.montant ELSE 0 END), 0) AS encaisse,
+        r.statut,
+        c.debut                               AS debutRaw
+      FROM reservations r
+      INNER JOIN creneaux c ON c.id = r.creneau_id
+      LEFT  JOIN paiements p ON p.reservation_id = r.id
+      WHERE c.debut BETWEEN ? AND ?
+        AND r.statut IN ('CONFIRMEE','EN_ATTENTE')
+      GROUP BY r.id, c.debut, c.fin, r.montant_total, r.statut
+      ORDER BY c.debut ASC
+    `, [debut, finInclus]);
+
+    // Regrouper par semaine calendaire (Lundi→Dimanche)
+    const getLundiSemaine = (dateStr: string) => {
+      const d = new Date(dateStr);
+      const day = d.getDay() === 0 ? 7 : d.getDay();
+      const lundi = new Date(d);
+      lundi.setDate(d.getDate() - day + 1);
+      lundi.setHours(0,0,0,0);
+      return lundi.toISOString().slice(0,10);
+    };
+
+    const fmtDate = (d: Date) =>
+      d.getDate().toString().padStart(2,'0') + '/' +
+      (d.getMonth()+1).toString().padStart(2,'0') + '/' + d.getFullYear();
+
+    const ordinalB = ['', '1ERE', '2EME', '3EME', '4EME', '5EME'];
+    const semMap = new Map<string, any[]>();
+    for (const r of resasBilan) {
+      const key = getLundiSemaine(r.debutRaw);
+      if (!semMap.has(key)) semMap.set(key, []);
+      semMap.get(key)!.push(r);
+    }
+
+    const semainesB = Array.from(semMap.entries()).sort(([a],[b]) => a.localeCompare(b));
+    let matchTotal = 0;
+
+    for (let si = 0; si < semainesB.length; si++) {
+      const [lundiStr, resas] = semainesB[si];
+      const lundi   = new Date(lundiStr + 'T12:00:00');
+      const dim     = new Date(lundi); dim.setDate(lundi.getDate() + 6);
+      const label   = `${ordinalB[si+1] ?? (si+1)+'EME'} SEMAINE DU ${fmtDate(lundi).slice(0,5)} AU ${fmtDate(dim)}`;
+
+      // Séparateur orange
+      ws4.mergeCells(`A${ws4.rowCount+1}:F${ws4.rowCount+1}`);
+      const sepR = ws4.lastRow!.getCell(1);
+      sepR.value     = label;
+      sepR.font      = { bold: true, size: 10, name: 'Arial', color: { argb: NOIR_F } };
+      sepR.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: ORANGE_F } };
+      sepR.alignment = { horizontal: 'center', vertical: 'middle' };
+      b4(sepR);
+      ws4.lastRow!.height = 18;
+      // Colonne G (STATUT) séparée
+      b4(ws4.lastRow!.getCell(7), BLEU_F);
+
+      // Lignes réservations
+      const startRowNum = ws4.rowCount + 1;
+      for (let i = 0; i < resas.length; i++) {
+        const r   = resas[i];
+        matchTotal++;
+        const tarif    = Number(r.tarif);
+        const encaisse = Number(r.encaisse);
+        const row = ws4.addRow([
+          `M${matchTotal}`, // MATCH
+          r.date,           // DATE
+          r.heure,          // HEURE
+          tarif,            // TARIF = montant total réservation
+          '',               // DÉPENSES — saisie manuelle (bleu)
+          encaisse,         // SOLDES = montant encaissé
+          '',               // STATUT — saisie manuelle (bleu)
+        ]);
+        row.height = 17;
+        // MATCH
+        row.getCell(1).font      = { name: 'Arial', size: 10, bold: true };
+        row.getCell(1).alignment = { horizontal: 'left' };
+        // DATE
+        row.getCell(2).alignment = { horizontal: 'right' };
+        row.getCell(2).font      = { name: 'Arial', size: 10 };
+        // HEURE
+        row.getCell(3).alignment = { horizontal: 'center' };
+        row.getCell(3).font      = { name: 'Arial', size: 10 };
+        // TARIF
+        row.getCell(4).numFmt    = '#,##0';
+        row.getCell(4).alignment = { horizontal: 'right' };
+        row.getCell(4).font      = { name: 'Arial', size: 10 };
+        // DÉPENSES — bleu (saisie manuelle)
+        row.getCell(5).fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLEU_F } };
+        // SOLDES = encaissé
+        row.getCell(6).numFmt    = '#,##0';
+        row.getCell(6).alignment = { horizontal: 'right' };
+        row.getCell(6).font      = { name: 'Arial', size: 10, color: { argb: encaisse >= tarif ? 'FF375623' : NOIR_F } };
+        // STATUT — bleu (saisie manuelle)
+        row.getCell(7).fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLEU_F } };
+        row.eachCell(c => b4(c));
+      }
+      const endRowNum = ws4.rowCount;
+
+      // Ligne TOTAUX — Total TARIF (col D) + Total SOLDES (col F)
+      const totRowB = ws4.addRow([
+        'TOTAUX', '', '',
+        { formula: `SUM(D${startRowNum}:D${endRowNum})` }, // Total TARIF
+        '',                                                 // DÉPENSES vide
+        { formula: `SUM(F${startRowNum}:F${endRowNum})` }, // Total SOLDES
+        '',
+      ]);
+      totRowB.height = 20;
+      totRowB.getCell(1).font = { bold: true, name: 'Arial', size: 10 };
+      totRowB.getCell(1).alignment = { horizontal: 'center' };
+
+      // TARIF total — fond orange
+      totRowB.getCell(4).numFmt   = '#,##0 "FCFA"';
+      totRowB.getCell(4).font     = { bold: true, name: 'Arial', size: 10 };
+      totRowB.getCell(4).alignment = { horizontal: 'right' };
+
+      // SOLDES total — fond vert
+      totRowB.getCell(6).numFmt   = '#,##0 "FCFA"';
+      totRowB.getCell(6).font     = { bold: true, name: 'Arial', size: 10, color: { argb: 'FF375623' } };
+      totRowB.getCell(6).alignment = { horizontal: 'right' };
+
+      b4(totRowB.getCell(1), ORANGE_F);
+      b4(totRowB.getCell(2), ORANGE_F);
+      b4(totRowB.getCell(3), ORANGE_F);
+      b4(totRowB.getCell(4), ORANGE_F);
+      b4(totRowB.getCell(5), ORANGE_F);
+      b4(totRowB.getCell(6), VERT_F);
+      b4(totRowB.getCell(7), BLEU_F);
+    }
+
+    // ── Grand total toutes semaines ──────────────────────────────────────
+    ws4.addRow([]);
+    const grandTot = ws4.addRow([
+      'GRAND TOTAL', '', '',
+      { formula: `SUMIF(A1:A${ws4.rowCount-1},"TOTAUX",D1:D${ws4.rowCount-1})` },
+      '',
+      { formula: `SUMIF(A1:A${ws4.rowCount-1},"TOTAUX",F1:F${ws4.rowCount-1})` },
+      '',
+    ]);
+    grandTot.height = 22;
+    grandTot.getCell(1).alignment = { horizontal: 'center' };
+    grandTot.getCell(4).numFmt   = '#,##0 "FCFA"';
+    grandTot.getCell(4).alignment = { horizontal: 'right' };
+    grandTot.getCell(6).numFmt   = '#,##0 "FCFA"';
+    grandTot.getCell(6).alignment = { horizontal: 'right' };
+    [1,2,3,4,5].forEach(c => b4(grandTot.getCell(c), JAUNE_F));
+    grandTot.getCell(6).font = { bold: true, name: 'Arial', size: 11, color: { argb: 'FF375623' } };
+    b4(grandTot.getCell(6), VERT_F);
+    b4(grandTot.getCell(7), BLEU_F);
+    [1,2,3,4,5,6,7].forEach(c => {
+      grandTot.getCell(c).font = grandTot.getCell(c).font ?? {};
+      grandTot.getCell(c).font = { ...(grandTot.getCell(c).font as any), bold: true, name: 'Arial', size: 11 };
+    });
+
+    ws4.columns = [
+      { width: 8  }, // MATCH
+      { width: 14 }, // DATE
+      { width: 12 }, // HEURE
+      { width: 14 }, // TARIF
+      { width: 14 }, // DÉPENSES
+      { width: 14 }, // SOLDES
+      { width: 14 }, // STATUT
+    ];
+    ws4.views = [{ state: 'frozen', ySplit: 2 }];
+
+        // ── Export Buffer ──────────────────────────────────────────────────────
     const buf = await wb.xlsx.writeBuffer();
     return buf as unknown as Buffer;
   }
