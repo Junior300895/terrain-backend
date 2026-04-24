@@ -398,6 +398,19 @@ export class ExcelService {
       semMap.get(key)!.push(r);
     }
 
+    // Générer toutes les semaines du mois même sans réservations
+    const debutMoisB  = new Date(debut + 'T00:00:00');
+    const finMoisB    = new Date(fin   + 'T23:59:59');
+    let   curB        = new Date(debutMoisB);
+    // Aller au lundi de la semaine du premier jour du mois
+    const dayB = curB.getDay() === 0 ? 7 : curB.getDay();
+    curB.setDate(curB.getDate() - dayB + 1);
+    while (curB <= finMoisB) {
+      const key = curB.toISOString().slice(0, 10);
+      if (!semMap.has(key)) semMap.set(key, []);
+      curB.setDate(curB.getDate() + 7);
+    }
+
     const semainesB = Array.from(semMap.entries()).sort(([a],[b]) => a.localeCompare(b));
     let matchTotal = 0;
 
@@ -421,19 +434,20 @@ export class ExcelService {
 
       // Lignes réservations
       const startRowNum = ws4.rowCount + 1;
-      for (let i = 0; i < resas.length; i++) {
-        const r   = resas[i];
-        matchTotal++;
-        const tarif    = Number(r.tarif);
-        const encaisse = Number(r.encaisse);
-        const row = ws4.addRow([
-          `M${matchTotal}`, // MATCH
-          r.date,           // DATE
-          r.heure,          // HEURE
-          tarif,            // TARIF = montant total réservation
-          '',               // DÉPENSES — saisie manuelle (bleu)
-          encaisse,         // SOLDES = montant encaissé
-          '',               // STATUT — saisie manuelle (bleu)
+      const MIN_RESAS = resas.length === 0 ? 2 : resas.length;
+      for (let i = 0; i < MIN_RESAS; i++) {
+        const r      = i < resas.length ? resas[i] : null;
+        if (r) matchTotal++;
+        const tarif  = r ? Number(r.tarif) : 0;
+        const rowNum = ws4.rowCount + 1;
+        const row    = ws4.addRow([
+          r ? `M${matchTotal}` : '',
+          r ? r.date  : '',
+          r ? r.heure : '',
+          r ? tarif   : '',
+          '',   // DÉPENSES — saisie manuelle (bleu)
+          r ? { formula: `IFERROR(D${rowNum}-IF(E${rowNum}="",0,E${rowNum}),D${rowNum})` } : '',
+          '',   // STATUT — saisie manuelle (bleu)
         ]);
         row.height = 17;
         // MATCH
@@ -454,19 +468,19 @@ export class ExcelService {
         // SOLDES = encaissé
         row.getCell(6).numFmt    = '#,##0';
         row.getCell(6).alignment = { horizontal: 'right' };
-        row.getCell(6).font      = { name: 'Arial', size: 10, color: { argb: encaisse >= tarif ? 'FF375623' : NOIR_F } };
+        row.getCell(6).font      = { name: 'Arial', size: 10 };
         // STATUT — bleu (saisie manuelle)
         row.getCell(7).fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: BLEU_F } };
         row.eachCell(c => b4(c));
       }
       const endRowNum = ws4.rowCount;
 
-      // Ligne TOTAUX — Total TARIF (col D) + Total SOLDES (col F)
+      // Ligne TOTAUX : Total TARIF + Total DÉPENSES + SOLDES = TARIF - DÉPENSES
       const totRowB = ws4.addRow([
         'TOTAUX', '', '',
-        { formula: `SUM(D${startRowNum}:D${endRowNum})` }, // Total TARIF
-        '',                                                 // DÉPENSES vide
-        { formula: `SUM(F${startRowNum}:F${endRowNum})` }, // Total SOLDES
+        { formula: `SUM(D${startRowNum}:D${endRowNum})` },             // Total TARIF
+        { formula: `SUM(E${startRowNum}:E${endRowNum})` },             // Total DÉPENSES
+        { formula: `SUM(D${startRowNum}:D${endRowNum})-SUM(E${startRowNum}:E${endRowNum})` }, // SOLDES = TARIF - DÉPENSES
         '',
       ]);
       totRowB.height = 20;
@@ -487,7 +501,10 @@ export class ExcelService {
       b4(totRowB.getCell(2), ORANGE_F);
       b4(totRowB.getCell(3), ORANGE_F);
       b4(totRowB.getCell(4), ORANGE_F);
-      b4(totRowB.getCell(5), ORANGE_F);
+      b4(totRowB.getCell(5), ORANGE_F);  // Total DÉPENSES — orange
+      totRowB.getCell(5).numFmt   = '#,##0 "FCFA"';
+      totRowB.getCell(5).font     = { bold: true, name: 'Arial', size: 10 };
+      totRowB.getCell(5).alignment = { horizontal: 'right' };
       b4(totRowB.getCell(6), VERT_F);
       b4(totRowB.getCell(7), BLEU_F);
     }
@@ -527,7 +544,187 @@ export class ExcelService {
     ];
     ws4.views = [{ state: 'frozen', ySplit: 2 }];
 
-        // ── Export Buffer ──────────────────────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+    // FEUILLE 5 — BILAN DÉPENSES PAR SEMAINE
+    // Même structure que le bilan financier mais pour les dépenses
+    // ══════════════════════════════════════════════════════════════════════
+    const ws5 = wb.addWorksheet('Bilan dépenses');
+
+    // ── Titre principal ───────────────────────────────────────────────────
+    ws5.mergeCells('A1:E1');
+    const titre5 = ws5.getCell('A1');
+    titre5.value = `BILAN DES DÉPENSES DU TERRAIN ${moisLabel4}`;
+    titre5.font  = { bold: true, size: 13, name: 'Arial', color: { argb: NOIR_F } };
+    titre5.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: JAUNE_F } };
+    titre5.alignment = { horizontal: 'center', vertical: 'middle' };
+    b4(titre5);
+    ws5.getRow(1).height = 24;
+
+    // ── En-têtes colonnes ─────────────────────────────────────────────────
+    const hrD = ws5.addRow(['N°', 'DATE', 'NATURE / CATÉGORIE', 'MONTANT', 'N° PIÈCE']);
+    hrD.height = 20;
+    hrD.eachCell((cell) => {
+      cell.font      = { bold: true, size: 10, name: 'Arial', color: { argb: NOIR_F } };
+      cell.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: JAUNE_F } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      b4(cell);
+    });
+
+    // ── Charger les dépenses ──────────────────────────────────────────────
+    const depBilan: any[] = await this.ds.query(`
+      SELECT
+        DATE_FORMAT(d.date_depense, '%d/%m/%Y') AS date,
+        d.categorie                              AS categorie,
+        d.montant                                AS montant,
+        COALESCE(d.reference_facture, '')        AS noPiece,
+        d.date_depense                           AS dateRaw
+      FROM depenses d
+      WHERE d.date_depense BETWEEN ? AND ?
+        AND d.statut = 'PAYEE'
+      ORDER BY d.date_depense ASC
+    `, [debut, fin]);
+
+    // Même regroupement par semaine calendaire lundi→dimanche
+    // Découper par semaines du mois : S1=1-7, S2=8-14, S3=15-21, S4=22-fin
+    const debutMois = new Date(debut + 'T00:00:00');
+    const moisRef   = debutMois.getMonth();
+    const anneeRef  = debutMois.getFullYear();
+
+    const getSemaineLabel = (num: number) => {
+      const debuts  = [1, 8, 15, 22];
+      const fins    = [7, 14, 21, new Date(anneeRef, moisRef + 1, 0).getDate()];
+      const ordD    = ['1ERE', '2EME', '3EME', '4EME'];
+      const moisStr = new Date(anneeRef, moisRef, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }).toUpperCase();
+      return `${ordD[num-1]} SEMAINE DU ${String(debuts[num-1]).padStart(2,'0')}/${String(moisRef+1).padStart(2,'0')} AU ${String(fins[num-1]).padStart(2,'0')}/${String(moisRef+1).padStart(2,'0')}/${anneeRef}`;
+    };
+
+    const getSemaine = (dateStr: string): number => {
+      const d = new Date(dateStr + 'T12:00:00');
+      // Ignorer les dates hors du mois sélectionné
+      if (d.getMonth() !== moisRef || d.getFullYear() !== anneeRef) return -1;
+      const jour = d.getDate();
+      if (jour <= 7)  return 1;
+      if (jour <= 14) return 2;
+      if (jour <= 21) return 3;
+      return 4;
+    };
+
+    const semMapD = new Map<string, any[]>();
+    for (const d of depBilan) {
+      const key = getLundiSemaine(d.dateRaw);
+      if (!semMapD.has(key)) semMapD.set(key, []);
+      semMapD.get(key)!.push(d);
+    }
+
+    // Générer toutes les semaines du mois même sans dépenses
+    const debutMoisD = new Date(debut + 'T00:00:00');
+    const finMoisD   = new Date(fin   + 'T23:59:59');
+    let   curD       = new Date(debutMoisD);
+    const dayD = curD.getDay() === 0 ? 7 : curD.getDay();
+    curD.setDate(curD.getDate() - dayD + 1);
+    while (curD <= finMoisD) {
+      const key = curD.toISOString().slice(0, 10);
+      if (!semMapD.has(key)) semMapD.set(key, []);
+      curD.setDate(curD.getDate() + 7);
+    }
+
+    const semainesD = Array.from(semMapD.entries()).sort(([a],[b]) => a.localeCompare(b));
+    let depNum = 0;
+    const allStartRows: number[] = [];
+    const allEndRows: number[]   = [];
+
+    for (let si = 0; si < semainesD.length; si++) {
+      const [lundiStrD, deps] = semainesD[si];
+      const lundiD = new Date(lundiStrD + 'T12:00:00');
+      const dimD   = new Date(lundiD); dimD.setDate(lundiD.getDate() + 6);
+      const label  = `${ordinalB[si+1] ?? (si+1)+'EME'} SEMAINE DU ${fmtDate(lundiD)} AU ${fmtDate(dimD)}`;
+
+      // Séparateur orange
+      ws5.mergeCells(`A${ws5.rowCount+1}:D${ws5.rowCount+1}`);
+      const sepD = ws5.lastRow!.getCell(1);
+      sepD.value     = label;
+      sepD.font      = { bold: true, size: 10, name: 'Arial', color: { argb: NOIR_F } };
+      sepD.fill      = { type: 'pattern', pattern: 'solid', fgColor: { argb: ORANGE_F } };
+      sepD.alignment = { horizontal: 'center', vertical: 'middle' };
+      b4(sepD);
+      b4(ws5.lastRow!.getCell(5), ORANGE_F);
+      ws5.lastRow!.height = 18;
+
+      const startD = ws5.rowCount + 1;
+      const MIN_D  = deps.length === 0 ? 2 : deps.length;
+      const totalD = Math.max(deps.length, MIN_D);
+
+      for (let i = 0; i < totalD; i++) {
+        const dep = deps[i] ?? null;
+        depNum += dep ? 1 : 0;
+        const row = ws5.addRow([
+          dep ? `D${String(depNum).padStart(2,'0')}` : '',
+          dep?.date    ?? '',
+          dep?.categorie ?? '',
+          dep ? Number(dep.montant) : '',
+          dep?.noPiece ?? '',
+        ]);
+        row.height = 17;
+        row.getCell(1).font      = { name: 'Arial', size: 10, bold: !!dep };
+        row.getCell(1).alignment = { horizontal: 'center' };
+        row.getCell(2).alignment = { horizontal: 'right' };
+        row.getCell(2).font      = { name: 'Arial', size: 10 };
+        row.getCell(3).font      = { name: 'Arial', size: 10 };
+        row.getCell(4).numFmt    = '#,##0';
+        row.getCell(4).alignment = { horizontal: 'right' };
+        row.getCell(4).font      = { name: 'Arial', size: 10 };
+        row.getCell(5).font      = { name: 'Arial', size: 10 };
+        row.eachCell(c => b4(c));
+      }
+
+      const endD = ws5.rowCount;
+      allStartRows.push(startD);
+      allEndRows.push(endD);
+
+      // Ligne TOTAUX semaine
+      const totD = ws5.addRow([
+        'TOTAUX', '', '',
+        { formula: `SUM(D${startD}:D${endD})` },
+        '',
+      ]);
+      totD.height = 20;
+      totD.getCell(1).alignment = { horizontal: 'center' };
+      totD.getCell(4).numFmt    = '#,##0 "FCFA"';
+      totD.getCell(4).font      = { bold: true, name: 'Arial', size: 10, color: { argb: 'FF843C0C' } };
+      totD.getCell(4).alignment = { horizontal: 'right' };
+      b4(totD.getCell(1), ORANGE_F);
+      b4(totD.getCell(2), ORANGE_F);
+      b4(totD.getCell(3), ORANGE_F);
+      b4(totD.getCell(4), ORANGE_F);
+      b4(totD.getCell(5), ORANGE_F);
+      totD.getCell(1).font = { bold: true, name: 'Arial', size: 10 };
+    }
+
+    // ── Grand total dépenses ──────────────────────────────────────────────
+    ws5.addRow([]);
+    const grandD = ws5.addRow([
+      'TOTAL GÉNÉRAL', '', '',
+      { formula: allStartRows.map((s,i) => `SUM(D${s}:D${allEndRows[i]})`).join('+') || '0' },
+      '',
+    ]);
+    grandD.height = 22;
+    grandD.getCell(1).alignment = { horizontal: 'center' };
+    grandD.getCell(4).numFmt    = '#,##0 "FCFA"';
+    grandD.getCell(4).alignment = { horizontal: 'right' };
+    grandD.getCell(4).font      = { bold: true, name: 'Arial', size: 12, color: { argb: 'FF843C0C' } };
+    [1,2,3,4,5].forEach(c => b4(grandD.getCell(c), JAUNE_F));
+    grandD.getCell(1).font = { bold: true, name: 'Arial', size: 11 };
+
+    ws5.columns = [
+      { width: 8  }, // N°
+      { width: 14 }, // DATE
+      { width: 40 }, // NATURE
+      { width: 16 }, // MONTANT
+      { width: 16 }, // N° PIÈCE
+    ];
+    ws5.views = [{ state: 'frozen', ySplit: 2 }];
+
+            // ── Export Buffer ──────────────────────────────────────────────────────
     const buf = await wb.xlsx.writeBuffer();
     return buf as unknown as Buffer;
   }
